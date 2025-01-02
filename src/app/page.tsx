@@ -1,7 +1,6 @@
 "use client";
-
 import Image from "next/image";
-import React from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import {
   VscFiles,
   VscSearch,
@@ -10,179 +9,244 @@ import {
   VscRemote,
   VscSync,
   VscExtensions,
-  VscChevronDown,
   VscCode,
   VscClose,
 } from "react-icons/vsc";
-import { useState, useCallback, useEffect } from "react";
 import { useDropzone } from "react-dropzone";
-import "prismjs/themes/prism-tomorrow.css";
 import Prism from "prismjs";
+import "prismjs/themes/prism-tomorrow.css";
 import "prismjs/components/prism-javascript";
 import "prismjs/components/prism-typescript";
 import "prismjs/components/prism-jsx";
 import "prismjs/components/prism-tsx";
-import "prismjs/themes/prism-tomorrow.css";
-import { useRef } from "react";
-import type { KeyboardEvent as ReactKeyboardEvent } from "react";
+import dynamic from "next/dynamic";
+import { useDebouncedSave } from "@/hooks/useDebounce";
+import { FileItem } from "@/types/type";
+import { ImportModal } from "@/components/ImportModal";
+import toast from "react-hot-toast";
 
-interface FileItem {
-  name: string;
-  content: string;
-  type: string;
+export const notify = {
+  error: (message: string) => toast.error(message),
+  success: (message: string) => toast.success(message),
+};
+import {
+  MAX_FILE_SIZE,
+  ALLOWED_FILE_TYPES,
+  LOCAL_STORAGE_KEY,
+  MAX_RECENT_FILES,
+  IconSize,
+} from "@/constants/constants";
+const Editor = dynamic(() => import("@/components/Editor"), { ssr: false });
+
+export interface FileValidationError {
+  code: string;
+  message: string;
 }
 
-const ImportModal = ({ onChoice }: { onChoice: (choice: boolean) => void }) => {
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-[#252526] p-6 rounded-lg shadow-lg max-w-md">
-        <h2 className="text-xl text-white mb-4">Import Previous Session</h2>
-        <p className="text-gray-300 mb-6">
-          Would you like to import files from your last session?
-        </p>
-        <div className="flex justify-end space-x-4">
-          <button
-            onClick={() => onChoice(false)}
-            className="px-4 py-2 bg-[#333333] text-white rounded hover:bg-[#404040]"
-          >
-            No
-          </button>
-          <button
-            onClick={() => onChoice(true)}
-            className="px-4 py-2 bg-[#007acc] text-white rounded hover:bg-[#1a8ad4]"
-          >
-            Yes
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
+interface ImportModalProps {
+  onChoice: (choice: boolean) => void;
+}
 
-const Home = () => {
-  const IconSize = 35;
-  const hasStoredFiles =
-    typeof window !== "undefined" && !!localStorage.getItem("files");
-  const [showImportModal, setShowImportModal] = useState(hasStoredFiles);
-
-  const [files, setFiles] = useState<FileItem[]>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("files");
-      if (saved && hasStoredFiles) {
-        try {
-          return JSON.parse(saved);
-        } catch {
-          return [];
-        }
-      }
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }> {
+  state = { hasError: false };
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  render() {
+    if (this.state.hasError) {
+      return <div>Something went wrong. Please refresh.</div>;
     }
-    return [];
+    return this.props.children;
+  }
+}
+
+const Home: React.FC = () => {
+  const hasStoredFiles =
+    typeof window !== "undefined" && !!localStorage.getItem(LOCAL_STORAGE_KEY);
+
+  const [showImportModal, setShowImportModal] = useState(hasStoredFiles);
+  const [files, setFiles] = useState<FileItem[]>(() => {
+    if (typeof window === "undefined") return [];
+
+    try {
+      const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+      return saved && hasStoredFiles ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
   });
+
   const [activeFile, setActiveFile] = useState<FileItem | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const editorRef = useRef<HTMLTextAreaElement>(null);
+  const [recentFiles, setRecentFiles] = useState<string[]>([]);
 
-  useEffect(() => {
-    const saved = localStorage.getItem("files");
-    if (saved && showImportModal) {
-      setShowImportModal(true);
-    } else {
-      setFiles([]);
-    }
-  }, []);
-
-  const handleImportChoice = (choice: boolean) => {
-    try {
-      if (choice && hasStoredFiles) {
-        const saved = localStorage.getItem("files");
-        if (saved) {
-          const parsedFiles = JSON.parse(saved);
-          setFiles(parsedFiles);
-        }
-      } else {
-        // Only clear storage on explicit "No"
-        localStorage.removeItem("files");
-        setFiles([]);
+  const handleFileClick = useCallback(
+    (file: FileItem) => {
+      // Don't re-open if already active
+      if (activeFile?.name === file.name) {
+        return;
       }
-    } catch (error) {
-      console.error("Error handling import choice:", error);
-    }
-    setShowImportModal(false);
-  };
+
+      // Update active file
+      setActiveFile({
+        ...file,
+        lastOpened: new Date(),
+      });
+
+      // Update recent files list
+      setRecentFiles((prev) => {
+        const filtered = prev.filter((f) => f !== file.name);
+        return [file.name, ...filtered].slice(0, MAX_RECENT_FILES);
+      });
+
+      // Trigger syntax highlighting after state update
+      requestAnimationFrame(() => {
+        Prism.highlightAll();
+      });
+    },
+    [activeFile]
+  );
 
   useEffect(() => {
     if (files.length > 0) {
-      localStorage.setItem("files", JSON.stringify(files));
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(files));
     }
   }, [files]);
 
-  const onDrop = useCallback((acceptedFiles: File[]) => {
-    acceptedFiles.forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const content = reader.result as string;
-        setFiles((prev) => [
-          ...prev,
-          {
-            name: file.name,
-            content: content,
-            type: file.type,
-          },
-        ]);
-      };
-      reader.readAsText(file);
-    });
-  }, []);
+  const validateFile = useCallback(
+    (file: File) => {
+      const errors = [];
+
+      if (file.size > MAX_FILE_SIZE) {
+        errors.push("File exceeds 5MB limit");
+      }
+
+      if (!ALLOWED_FILE_TYPES.some((type) => file.name.endsWith(type))) {
+        errors.push(
+          `File type not allowed. Supported: ${ALLOWED_FILE_TYPES.join(", ")}`
+        );
+      }
+
+      if (files.some((f) => f.name === file.name)) {
+        errors.push("File with same name already exists");
+      }
+
+      if (errors.length) {
+        throw new Error(errors.join("\n"));
+      }
+
+      return true;
+    },
+    [files]
+  );
+
+  const onDrop = useCallback(
+    (acceptedFiles: File[]) => {
+      try {
+        acceptedFiles.forEach((file) => {
+          validateFile(file);
+          const reader = new FileReader();
+          reader.onload = () => {
+            const content = reader.result as string;
+            // Remove DOMPurify to preserve code content
+            setFiles((prev) => [
+              ...prev,
+              {
+                name: file.name,
+                content: content,
+                type: file.type,
+                lastOpened: new Date(),
+              },
+            ]);
+          };
+          reader.readAsText(file);
+        });
+      } catch (error) {
+        console.error("File validation failed:", error);
+        notify.error(
+          error instanceof Error ? error.message : "File validation failed"
+        );
+      }
+    },
+    [validateFile]
+  );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop });
 
-  const handleFileClick = (file: FileItem) => {
-    setActiveFile(file);
-  };
+  const handleImportChoice = useCallback(
+    (choice: boolean) => {
+      try {
+        if (choice && hasStoredFiles) {
+          const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+          if (saved) {
+            setFiles(JSON.parse(saved));
+          }
+        } else {
+          localStorage.removeItem(LOCAL_STORAGE_KEY);
+          setFiles([]);
+        }
+      } catch (error) {
+        console.error("Error handling import choice:", error);
+      }
+      setShowImportModal(false);
+    },
+    [hasStoredFiles]
+  );
+
+  const handleContentChange = useCallback(
+    (content: string) => {
+      if (!activeFile) return;
+
+      const updatedFile = {
+        ...activeFile,
+        content: content,
+      };
+      setActiveFile(updatedFile);
+      setFiles((prev) =>
+        prev.map((f) => (f.name === activeFile.name ? updatedFile : f))
+      );
+    },
+    [activeFile]
+  );
+
+  const debouncedSave = useDebouncedSave();
+
+  const handleSave = useCallback(
+    (e: KeyboardEvent) => {
+      if (!((e.ctrlKey || e.metaKey) && e.key === "s") || !activeFile) return;
+
+      e.preventDefault();
+      setIsSaving(true);
+
+      debouncedSave(() => {
+        try {
+          const updatedFiles = files.map((f) =>
+            f.name === activeFile.name ? activeFile : f
+          );
+          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updatedFiles));
+        } catch (error) {
+          console.error("Save failed:", error);
+        } finally {
+          setIsSaving(false);
+        }
+      });
+    },
+    [activeFile, files, debouncedSave]
+  );
+
   useEffect(() => {
     if (activeFile) {
       Prism.highlightAll();
     }
   }, [activeFile]);
 
-  const editorRef = useRef<HTMLTextAreaElement>(null);
-  const handleContentChange = (content: string) => {
-    if (activeFile) {
-      const updatedFile = { ...activeFile, content };
-      setActiveFile(updatedFile);
-      setFiles(
-        files.map((f) => (f.name === activeFile.name ? updatedFile : f))
-      );
-    }
-  };
-
-  const handleSave = useCallback(
-    (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
-        e.preventDefault();
-        if (activeFile) {
-          setIsSaving(true);
-          // Save to localStorage
-          const updatedFiles = files.map((f) =>
-            f.name === activeFile.name ? activeFile : f
-          );
-          localStorage.setItem("files", JSON.stringify(updatedFiles));
-          console.log("Saving file:", activeFile.name);
-
-          setTimeout(() => {
-            setIsSaving(false);
-          }, 500);
-        }
-      }
-    },
-    [activeFile, files]
-  );
-
   useEffect(() => {
     window.addEventListener("keydown", handleSave);
     return () => window.removeEventListener("keydown", handleSave);
   }, [handleSave]);
   return (
-    <>
+    <ErrorBoundary>
       {showImportModal && <ImportModal onChoice={handleImportChoice} />}
 
       <div>
@@ -245,15 +309,15 @@ const Home = () => {
           </div>
           {/* File Manager */}
           <div className="flex border-t-2 w-full">
-            <div className="w-64 border-r-2 text-gray-300 bg-[#252526]">
-              <div className="w-64 border-r-2 text-gray-300 bg-[#252526]">
-                <div className="px-4 py-2 uppercase text-xs font-semibold tracking-wide">
+            <div className="w-64 border-r-2 text-gray-300 ">
+              <div className="w-64 border-r-2 text-gray-300 ">
+                <div className="px-4 py-2 border-b-2 uppercase text-xs font-semibold tracking-wide">
                   Explorer
                 </div>
                 {files.length === 0 ? (
                   <div
                     {...getRootProps()}
-                    className={`p-4 h-full flex items-center justify-center border-2 border-dashed m-4 rounded ${
+                    className={`p-4 h-full flex  items-center justify-center border-2 border-dashed m-4 rounded ${
                       isDragActive ? "bg-[#2a2d2e]" : ""
                     }`}
                   >
@@ -268,9 +332,11 @@ const Home = () => {
                   <div className="p-4">
                     {files.map((file, index) => (
                       <div
-                        key={index}
+                        key={file.name} // Use file name instead of index for stable key
                         onClick={() => handleFileClick(file)}
-                        className="flex items-center py-1 cursor-pointer hover:bg-[#2a2d2e]"
+                        className={`flex items-center py-1 border-b-2 cursor-pointer hover:bg-[#2a2d2e] ${
+                          activeFile?.name === file.name ? "bg-[#37373d]" : ""
+                        }`}
                       >
                         <VscCode className="mr-2" size={16} />
                         <span>{file.name}</span>
@@ -290,7 +356,7 @@ const Home = () => {
               {/* Tabs */}
               <div className="flex border-b-2 h-9">
                 {activeFile && (
-                  <div className="flex items-center px-3 py-1 border-t border-[#007acc] text-white text-sm min-w-[120px] max-w-[200px] group">
+                  <div className="flex items-center px-3 border-r-2 border-white py-1  text-white text-sm min-w-[120px] max-w-[200px] group">
                     <VscCode className="mr-1" size={20} />
                     <span className="truncate flex-1">{activeFile.name}</span>
                     {isSaving ? (
@@ -307,29 +373,9 @@ const Home = () => {
               </div>
 
               {/* Code Content */}
-              <div className="h-full w-full overflow-auto relative bg-[#1e1e1e]">
+              <div className="h-screen w-full overflow-auto relative bg-[#1e1e1e]">
                 {activeFile ? (
-                  <div className="font-mono text-sm relative">
-                    <textarea
-                      ref={editorRef}
-                      value={activeFile.content}
-                      onChange={(e) => handleContentChange(e.target.value)}
-                      className="absolute top-0 left-0 w-full h-full bg-transparent text-transparent caret-white outline-none resize-none p-4 z-10"
-                      spellCheck={false}
-                    />
-                    <pre className="pointer-events-none p-4">
-                      <code
-                        className={`language-${
-                          activeFile.name.endsWith("ts") ||
-                          activeFile.name.endsWith("tsx")
-                            ? "typescript"
-                            : "javascript"
-                        }`}
-                      >
-                        {activeFile.content}
-                      </code>
-                    </pre>
-                  </div>
+                  <Editor file={activeFile} onChange={handleContentChange} />
                 ) : (
                   <div className="flex items-center justify-center h-full text-gray-500">
                     Select a file to view
@@ -340,8 +386,8 @@ const Home = () => {
           </div>
         </div>
       </div>
-    </>
+    </ErrorBoundary>
   );
 };
 
-export default Home;
+export default React.memo(Home);
