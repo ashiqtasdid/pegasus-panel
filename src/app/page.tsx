@@ -1,6 +1,6 @@
 "use client";
 import Image from "next/image";
-import React, { useState, useCallback, useEffect, useRef } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   VscFiles,
   VscSearch,
@@ -24,11 +24,6 @@ import { useDebouncedSave } from "@/hooks/useDebounce";
 import { FileItem } from "@/types/type";
 import { ImportModal } from "@/components/ImportModal";
 import toast from "react-hot-toast";
-
-export const notify = {
-  error: (message: string) => toast.error(message),
-  success: (message: string) => toast.success(message),
-};
 import {
   MAX_FILE_SIZE,
   ALLOWED_FILE_TYPES,
@@ -36,15 +31,16 @@ import {
   MAX_RECENT_FILES,
   IconSize,
 } from "@/constants/constants";
+
+export const notify = {
+  error: (message: string) => toast.error(message),
+  success: (message: string) => toast.success(message),
+};
 const Editor = dynamic(() => import("@/components/Editor"), { ssr: false });
 
 export interface FileValidationError {
   code: string;
   message: string;
-}
-
-interface ImportModalProps {
-  onChoice: (choice: boolean) => void;
 }
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }> {
@@ -78,9 +74,8 @@ const Home: React.FC = () => {
 
   const [activeFile, setActiveFile] = useState<FileItem | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const editorRef = useRef<HTMLTextAreaElement>(null);
   const [recentFiles, setRecentFiles] = useState<string[]>([]);
-
+  console.log(recentFiles);
   const handleFileClick = useCallback(
     (file: FileItem) => {
       // Don't re-open if already active
@@ -330,7 +325,7 @@ const Home: React.FC = () => {
                   </div>
                 ) : (
                   <div className="p-4">
-                    {files.map((file, index) => (
+                    {files.map((file) => (
                       <div
                         key={file.name} // Use file name instead of index for stable key
                         onClick={() => handleFileClick(file)}

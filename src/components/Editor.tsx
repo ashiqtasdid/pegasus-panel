@@ -1,5 +1,5 @@
-import { FC, useState, useCallback } from 'react';
-import MonacoEditor, { EditorProps } from '@monaco-editor/react';
+import { FC, useState } from 'react';
+import MonacoEditor from '@monaco-editor/react';
 import { FileItem } from '@/types/type';
 
 interface CodeEditorProps {
@@ -15,7 +15,6 @@ const Editor: FC<CodeEditorProps> = ({ file, onChange }) => {
       onChange(value);
     }
   };
-
   const handleEditorMount = (editor: any) => {
     // Prevent browser zoom
     window.addEventListener('keydown', (e) => {
