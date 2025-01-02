@@ -38,7 +38,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 
-export const notify = {
+const notify = {
   error: (message: string) => toast.error(message),
   success: (message: string) => toast.success(message),
 };
