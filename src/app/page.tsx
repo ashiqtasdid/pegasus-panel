@@ -31,6 +31,12 @@ import {
   MAX_RECENT_FILES,
   IconSize,
 } from "@/constants/constants";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 
 export const notify = {
   error: (message: string) => toast.error(message),
@@ -240,13 +246,37 @@ const Home: React.FC = () => {
     window.addEventListener("keydown", handleSave);
     return () => window.removeEventListener("keydown", handleSave);
   }, [handleSave]);
+
+  const handleDownload = useCallback((file: FileItem) => {
+    // Create blob from file content
+    const blob = new Blob([file.content], { type: "text/plain" });
+
+    // Create download URL
+    const url = window.URL.createObjectURL(blob);
+
+    // Create temporary link element
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = file.name;
+
+    // Trigger download
+    document.body.appendChild(link);
+    link.click();
+
+    // Cleanup
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+
+    notify.success(`Downloading ${file.name}`);
+  }, []);
+
   return (
     <ErrorBoundary>
       {showImportModal && <ImportModal onChoice={handleImportChoice} />}
 
       <div>
-        <div className="flex items-center justify-between px-4">
-          <div className="w-1/3 flex items-center space-x-8">
+        <div className="flex bg-black items-center justify-between px-4">
+          <div className="w-1/3 bg-black flex items-center space-x-8">
             <div className="-mx-2">
               <Image
                 src={"/assets/logo.png"}
@@ -266,17 +296,17 @@ const Home: React.FC = () => {
             </div>
           </div>
 
-          <div className="w-1/3 flex justify-center">
+          <div className="w-1/3 bg-black flex justify-center">
             <input
               type="text"
-              className="w-[800px] px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-[800px] bg-black px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="Search..."
             />
           </div>
 
           <div className="w-1/3">{/* Reserved for future use */}</div>
         </div>
-        <div className="flex h-screen">
+        <div className="flex bg-black h-screen">
           <div className="border-r-2 border-t-2 text-center p-5 justify-center flex w-16">
             <ul className="space-y-6 ">
               <li className="text-gray-400 hover:text-white cursor-pointer">
@@ -303,7 +333,7 @@ const Home: React.FC = () => {
             </ul>
           </div>
           {/* File Manager */}
-          <div className="flex border-t-2 w-full">
+          <div className="flex bg-black border-t-2 w-full">
             <div className="w-64 border-r-2 text-gray-300 ">
               <div className="w-64 border-r-2 text-gray-300 ">
                 <div className="px-4 py-2 border-b-2 uppercase text-xs font-semibold tracking-wide">
@@ -326,16 +356,53 @@ const Home: React.FC = () => {
                 ) : (
                   <div className="p-4">
                     {files.map((file) => (
-                      <div
-                        key={file.name} // Use file name instead of index for stable key
-                        onClick={() => handleFileClick(file)}
-                        className={`flex items-center py-1 border-b-2 cursor-pointer hover:bg-[#2a2d2e] ${
-                          activeFile?.name === file.name ? "bg-[#37373d]" : ""
-                        }`}
-                      >
-                        <VscCode className="mr-2" size={16} />
-                        <span>{file.name}</span>
-                      </div>
+                      <ContextMenu key={file.name}>
+                        <ContextMenuTrigger asChild>
+                          <div>
+                            <div
+                              key={file.name}
+                              onClick={() => handleFileClick(file)}
+                              className={`flex items-center py-1 border-b-2 cursor-pointer hover:bg-[#2a2d2e] ${
+                                activeFile?.name === file.name
+                                  ? "bg-[#37373d]"
+                                  : ""
+                              }`}
+                            >
+                              <VscCode className="mr-2" size={16} />
+                              <span>{file.name}</span>
+                            </div>
+
+                          </div>
+                        </ContextMenuTrigger>
+                        <ContextMenuContent>
+                          <ContextMenuItem
+                            inset
+                            onClick={() => handleDownload(file)}
+                          >
+                            Download
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            inset
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (activeFile?.name === file.name) {
+                                setActiveFile(null);
+                              }
+                              setFiles((prev) =>
+                                prev.filter((f) => f.name !== file.name)
+                              );
+                              localStorage.setItem(
+                                LOCAL_STORAGE_KEY,
+                                JSON.stringify(
+                                  files.filter((f) => f.name !== file.name)
+                                )
+                              );
+                            }}                          >
+                            Close
+                          </ContextMenuItem>
+
+                        </ContextMenuContent>
+                      </ContextMenu>
                     ))}
                   </div>
                 )}

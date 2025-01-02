@@ -1,6 +1,6 @@
-import { FC, useState } from 'react';
-import MonacoEditor from '@monaco-editor/react';
-import { FileItem } from '@/types/type';
+import { FC, useState } from "react";
+import MonacoEditor from "@monaco-editor/react";
+import { FileItem } from "@/types/type";
 
 interface CodeEditorProps {
   file: FileItem;
@@ -15,23 +15,30 @@ const Editor: FC<CodeEditorProps> = ({ file, onChange }) => {
       onChange(value);
     }
   };
+  
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handleEditorMount = (editor: any) => {
     // Prevent browser zoom
-    window.addEventListener('keydown', (e) => {
-      if (e.ctrlKey && (e.key === '=' || e.key === '-' || e.key === '+')) {
-        e.preventDefault();
-      }
-    }, { passive: false });
+    window.addEventListener(
+      "keydown",
+      (e) => {
+        if (e.ctrlKey && (e.key === "=" || e.key === "-" || e.key === "+")) {
+          e.preventDefault();
+        }
+      },
+      { passive: false }
+    );
 
     // Handle editor-specific zoom
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     editor.onKeyDown((e: any) => {
       if (e.ctrlKey) {
-        if (e.key === '=' || e.key === '+') {
+        if (e.key === "=" || e.key === "+") {
           e.preventDefault();
-          setFontSize(prev => Math.min(prev + 2, 40));
-        } else if (e.key === '-') {
+          setFontSize((prev) => Math.min(prev + 2, 40));
+        } else if (e.key === "-") {
           e.preventDefault();
-          setFontSize(prev => Math.max(prev - 2, 8));
+          setFontSize((prev) => Math.max(prev - 2, 8));
         }
       }
     });
@@ -39,27 +46,31 @@ const Editor: FC<CodeEditorProps> = ({ file, onChange }) => {
     // Handle mouse wheel zoom
     const editorDomNode = editor.getDomNode();
     if (editorDomNode) {
-      editorDomNode.addEventListener('wheel', (e: WheelEvent) => {
-        if (e.ctrlKey) {
-          e.preventDefault();
-          const delta = e.deltaY > 0 ? -2 : 2;
-          setFontSize(prev => Math.min(Math.max(prev + delta, 8), 40));
-        }
-      }, { passive: false });
+      editorDomNode.addEventListener(
+        "wheel",
+        (e: WheelEvent) => {
+          if (e.ctrlKey) {
+            e.preventDefault();
+            const delta = e.deltaY > 0 ? -2 : 2;
+            setFontSize((prev) => Math.min(Math.max(prev + delta, 8), 40));
+          }
+        },
+        { passive: false }
+      );
     }
   };
 
   return (
     <MonacoEditor
       height="100%"
-      language={file.name.split('.').pop() || 'typescript'}
+      language={file.name.split(".").pop() || "typescript"}
       theme="vs-dark"
       value={file.content}
       onChange={handleEditorChange}
       onMount={handleEditorMount}
       options={{
         minimap: { enabled: true },
-        lineNumbers: 'on',
+        lineNumbers: "on",
         roundedSelection: false,
         scrollBeyondLastLine: false,
         readOnly: false,
