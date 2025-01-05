@@ -37,17 +37,15 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { storage } from "@/lib/utils";
+import { SidebarIcon } from "@/types/type";
+import { FileValidationError } from "@/types/type";
 
 const notify = {
   error: (message: string) => toast.error(message),
   success: (message: string) => toast.success(message),
 };
 const Editor = dynamic(() => import("@/components/Editor"), { ssr: false });
-
-export interface FileValidationError {
-  code: string;
-  message: string;
-}
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }> {
   state = { hasError: false };
@@ -81,7 +79,28 @@ const Home: React.FC = () => {
   const [activeFile, setActiveFile] = useState<FileItem | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [recentFiles, setRecentFiles] = useState<string[]>([]);
+
+  const [fileTreeWidth, setFileTreeWidth] = useState(() => {
+    return storage.get("fileTreeWidth", 256);
+  });
+
+  const [startX, setStartX] = useState(0);
+  const [startWidth, setStartWidth] = useState(0);
+  const [isResizing, setIsResizing] = useState(false);
+
+  const [isFileTreeVisible, setIsFileTreeVisible] = useState(() => {
+    return storage.get("fileTreeVisible", true);
+  });
+
+  const toggleFileTree = (): void => {
+    setIsFileTreeVisible((prev: boolean): boolean => {
+      const newState: boolean = !prev;
+      storage.set("fileTreeVisible", newState);
+      return newState;
+    });
+  };
   console.log(recentFiles);
+
   const handleFileClick = useCallback(
     (file: FileItem) => {
       // Don't re-open if already active
@@ -123,12 +142,6 @@ const Home: React.FC = () => {
         errors.push("File exceeds 5MB limit");
       }
 
-      if (!ALLOWED_FILE_TYPES.some((type) => file.name.endsWith(type))) {
-        errors.push(
-          `File type not allowed. Supported: ${ALLOWED_FILE_TYPES.join(", ")}`
-        );
-      }
-
       if (files.some((f) => f.name === file.name)) {
         errors.push("File with same name already exists");
       }
@@ -148,20 +161,47 @@ const Home: React.FC = () => {
         acceptedFiles.forEach((file) => {
           validateFile(file);
           const reader = new FileReader();
+
           reader.onload = () => {
-            const content = reader.result as string;
-            // Remove DOMPurify to preserve code content
-            setFiles((prev) => [
-              ...prev,
-              {
-                name: file.name,
-                content: content,
-                type: file.type,
-                lastOpened: new Date(),
-              },
-            ]);
+            const isText =
+              file.type.startsWith("text/") ||
+              file.name.match(/\.(txt|js|jsx|ts|tsx|md|css|html|json)$/i);
+
+            if (isText) {
+              // Handle text files as before
+              setFiles((prev) => [
+                ...prev,
+                {
+                  name: file.name,
+                  content: reader.result as string,
+                  type: file.type,
+                  lastOpened: new Date(),
+                  isBase64: false,
+                },
+              ]);
+            } else {
+              // Handle binary files with base64
+              setFiles((prev) => [
+                ...prev,
+                {
+                  name: file.name,
+                  content: reader.result as string,
+                  type: file.type,
+                  lastOpened: new Date(),
+                  isBase64: true,
+                },
+              ]);
+            }
           };
-          reader.readAsText(file);
+
+          if (
+            file.type.startsWith("text/") ||
+            file.name.match(/\.(txt|js|jsx|ts|tsx|md|css|html|json)$/i)
+          ) {
+            reader.readAsText(file);
+          } else {
+            reader.readAsDataURL(file);
+          }
         });
       } catch (error) {
         console.error("File validation failed:", error);
@@ -248,203 +288,265 @@ const Home: React.FC = () => {
   }, [handleSave]);
 
   const handleDownload = useCallback((file: FileItem) => {
-    // Create blob from file content
-    const blob = new Blob([file.content], { type: "text/plain" });
+    let blob;
 
-    // Create download URL
+    if (file.isBase64) {
+      // Handle binary files
+      const base64Data = file.content.split(",")[1];
+      blob = new Blob([Buffer.from(base64Data, "base64")], { type: file.type });
+    } else {
+      // Handle text files
+      blob = new Blob([file.content], { type: file.type });
+    }
+
     const url = window.URL.createObjectURL(blob);
-
-    // Create temporary link element
     const link = document.createElement("a");
     link.href = url;
     link.download = file.name;
-
-    // Trigger download
     document.body.appendChild(link);
     link.click();
-
-    // Cleanup
     document.body.removeChild(link);
     window.URL.revokeObjectURL(url);
 
     notify.success(`Downloading ${file.name}`);
   }, []);
 
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing) return;
+
+      const delta = startX - e.clientX;
+      const newWidth = Math.min(Math.max(startWidth + delta, 200), 600);
+
+      setFileTreeWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      storage.set("fileTreeWidth", fileTreeWidth);
+      document.body.style.cursor = "default";
+      document.body.style.userSelect = "auto";
+    };
+
+    if (isResizing) {
+      document.addEventListener("mousemove", handleMouseMove);
+      document.addEventListener("mouseup", handleMouseUp);
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+    }
+
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      document.body.style.cursor = "default";
+      document.body.style.userSelect = "auto";
+    };
+  }, [isResizing, startX, startWidth, fileTreeWidth]);
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    setIsResizing(true);
+    setStartX(e.clientX);
+    setStartWidth(fileTreeWidth);
+    e.preventDefault();
+  };
   return (
     <ErrorBoundary>
       {showImportModal && <ImportModal onChoice={handleImportChoice} />}
 
-      <div>
-        <div className="flex bg-black items-center justify-between px-4">
-          <div className="w-1/3 bg-black flex items-center space-x-8">
-            <div className="-mx-2">
+      <div className="flex flex-col h-screen bg-[#1e1e1e]">
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 h-[48px] border-b border-[#333333]">
+          <div className="flex items-center space-x-8">
+            <div className="flex items-center h-[48px] px-2">
               <Image
-                src={"/assets/logo.png"}
-                height={50}
-                width={50}
+                src="/assets/logo.png"
+                height={32}
+                width={32}
                 alt="logo"
-                className="brightness-0  invert"
-              />{" "}
+                className="brightness-0 invert"
+              />
             </div>
-            <div className="flex space-x-5">
-              <ul>File</ul>
-              <ul>Edit</ul>
-              <ul>View</ul>
-              <ul>Terminal</ul>
-              <ul>Run</ul>
-              <ul>Help</ul>
+            <div className="flex space-x-6 text-[13px] text-gray-300">
+              <button className="hover:text-white px-2 py-1">File</button>
+              <button className="hover:text-white px-2 py-1">Edit</button>
+              <button className="hover:text-white px-2 py-1">View</button>
+              <button className="hover:text-white px-2 py-1">Terminal</button>
+              <button className="hover:text-white px-2 py-1">Run</button>
+              <button className="hover:text-white px-2 py-1">Help</button>
             </div>
           </div>
 
-          <div className="w-1/3 bg-black flex justify-center">
+          <div className="flex-1 max-w-2xl px-4">
             <input
               type="text"
-              className="w-[800px] bg-black px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full bg-[#252526] text-gray-300 px-4 py-1.5 text-sm rounded border border-[#3C3C3C] focus:outline-none focus:border-[#007ACC] transition-colors"
               placeholder="Search..."
             />
           </div>
-
-          <div className="w-1/3">{/* Reserved for future use */}</div>
         </div>
-        <div className="flex bg-black h-screen">
-          <div className="border-r-2 border-t-2 text-center p-5 justify-center flex w-16">
-            <ul className="space-y-6 ">
-              <li className="text-gray-400 hover:text-white cursor-pointer">
-                <VscFiles size={IconSize} />
-              </li>
-              <li className="text-gray-400 hover:text-white cursor-pointer">
-                <VscSearch size={IconSize} />
-              </li>
-              <li className="text-gray-400 hover:text-white cursor-pointer">
-                <VscSourceControl size={IconSize} />
-              </li>
-              <li className="text-gray-400 hover:text-white cursor-pointer">
-                <VscDebugAlt size={IconSize} />
-              </li>
-              <li className="text-gray-400 hover:text-white cursor-pointer">
-                <VscRemote size={IconSize} />
-              </li>
-              <li className="text-gray-400 hover:text-white cursor-pointer">
-                <VscSync size={IconSize} />
-              </li>
-              <li className="text-gray-400 hover:text-white cursor-pointer">
-                <VscExtensions size={IconSize} />
-              </li>
-            </ul>
-          </div>
-          {/* File Manager */}
-          <div className="flex bg-black border-t-2 w-full">
-            <div className="w-64 border-r-2 text-gray-300 ">
-              <div className="w-64 border-r-2 text-gray-300 ">
-                <div className="px-4 py-2 border-b-2 uppercase text-xs font-semibold tracking-wide">
-                  Explorer
-                </div>
-                {files.length === 0 ? (
-                  <div
-                    {...getRootProps()}
-                    className={`p-4 h-full flex  items-center justify-center border-2 border-dashed m-4 rounded ${
-                      isDragActive ? "bg-[#2a2d2e]" : ""
-                    }`}
-                  >
-                    <input {...getInputProps()} />
-                    <p className="text-gray-500 text-sm text-center">
-                      Drop files here
-                      <br />
-                      to start editing
-                    </p>
-                  </div>
-                ) : (
-                  <div className="p-4">
-                    {files.map((file) => (
-                      <ContextMenu key={file.name}>
-                        <ContextMenuTrigger asChild>
-                          <div>
-                            <div
-                              key={file.name}
-                              onClick={() => handleFileClick(file)}
-                              className={`flex items-center py-1 border-b-2 cursor-pointer hover:bg-[#2a2d2e] ${
-                                activeFile?.name === file.name
-                                  ? "bg-[#37373d]"
-                                  : ""
-                              }`}
-                            >
-                              <VscCode className="mr-2" size={16} />
-                              <span>{file.name}</span>
-                            </div>
 
-                          </div>
-                        </ContextMenuTrigger>
-                        <ContextMenuContent>
-                          <ContextMenuItem
-                            inset
-                            onClick={() => handleDownload(file)}
-                          >
-                            Download
-                          </ContextMenuItem>
-                          <ContextMenuItem
-                            inset
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (activeFile?.name === file.name) {
-                                setActiveFile(null);
-                              }
-                              setFiles((prev) =>
-                                prev.filter((f) => f.name !== file.name)
-                              );
-                              localStorage.setItem(
-                                LOCAL_STORAGE_KEY,
-                                JSON.stringify(
-                                  files.filter((f) => f.name !== file.name)
-                                )
-                              );
-                            }}                          >
-                            Close
-                          </ContextMenuItem>
-
-                        </ContextMenuContent>
-                      </ContextMenu>
-                    ))}
-                  </div>
-                )}
-                <div
-                  {...getRootProps()}
-                  className={`p-4 ${isDragActive ? "bg-[#2a2d2e]" : ""}`}
+        {/* Main Content */}
+        <div className="flex flex-1 overflow-hidden">
+          {/* Left Sidebar Icons */}
+          <div className="w-[48px] bg-[#252526] flex flex-col items-center py-2 border-r border-[#333333]">
+            <div className="flex flex-col space-y-4">
+              {[
+                {
+                  Icon: VscFiles,
+                  onClick: () =>
+                    setIsFileTreeVisible((prevState: boolean) => !prevState),
+                  isActive: isFileTreeVisible,
+                },
+                { Icon: VscSearch, onClick: () => {}, isActive: false },
+                { Icon: VscSourceControl, onClick: () => {}, isActive: false },
+                { Icon: VscDebugAlt, onClick: () => {}, isActive: false },
+                { Icon: VscRemote, onClick: () => {}, isActive: false },
+                { Icon: VscSync, onClick: () => {}, isActive: false },
+                { Icon: VscExtensions, onClick: () => {}, isActive: false },
+              ].map(({ Icon, onClick, isActive }: SidebarIcon, i: number) => (
+                <button
+                  key={i}
+                  onClick={onClick}
+                  className={`p-2 transition-colors duration-200 ease-in-out ${
+                    isActive
+                      ? "text-white bg-[#37373D]"
+                      : "text-gray-400 hover:text-white hover:bg-[#37373D]"
+                  }`}
                 >
-                  <input {...getInputProps()} />
-                </div>
-              </div>
+                  <Icon size={24} />
+                </button>
+              ))}
             </div>
-            <div className="w-full">
-              {/* Tabs */}
-              <div className="flex border-b-2 h-9">
-                {activeFile && (
-                  <div className="flex items-center px-3 border-r-2 border-white py-1  text-white text-sm min-w-[120px] max-w-[200px] group">
-                    <VscCode className="mr-1" size={20} />
-                    <span className="truncate flex-1">{activeFile.name}</span>
-                    {isSaving ? (
-                      <span className="text-xs text-gray-400">Saving...</span>
-                    ) : (
-                      <VscClose
-                        className="opacity-0 group-hover:opacity-100 hover:bg-[#333333] rounded"
-                        size={16}
-                        onClick={() => setActiveFile(null)}
-                      />
-                    )}
-                  </div>
-                )}
-              </div>
+          </div>
 
-              {/* Code Content */}
-              <div className="h-screen w-full overflow-auto relative bg-[#1e1e1e]">
-                {activeFile ? (
-                  <Editor file={activeFile} onChange={handleContentChange} />
-                ) : (
-                  <div className="flex items-center justify-center h-full text-gray-500">
-                    Select a file to view
-                  </div>
-                )}
-              </div>
+          {/* Editor Area */}
+          <div className="flex-1 bg-[#1e1e1e] flex flex-col">
+            {/* Tabs */}
+            <div className="h-[35px] flex items-center bg-[#252526] border-b border-[#333333]">
+              {activeFile && (
+                <div className="group flex items-center h-[35px] px-3 bg-[#1e1e1e] border-r border-[#333333] min-w-[120px] max-w-[200px]">
+                  <VscCode className="mr-2 text-[#007ACC]" size={16} />
+                  <span className="text-gray-300 text-sm truncate flex-1">
+                    {activeFile.name}
+                  </span>
+                  {isSaving ? (
+                    <span className="text-xs text-gray-400 ml-2">
+                      Saving...
+                    </span>
+                  ) : (
+                    <button
+                      className="opacity-0 group-hover:opacity-100 hover:bg-[#333333] p-0.5 rounded transition-all"
+                      onClick={() => setActiveFile(null)}
+                    >
+                      <VscClose
+                        className="text-gray-400 hover:text-white"
+                        size={16}
+                      />
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
+
+            {/* Editor Content */}
+            <div className="flex-1 overflow-auto">
+              {activeFile ? (
+                <Editor file={activeFile} onChange={handleContentChange} />
+              ) : (
+                <div className="flex items-center justify-center h-full text-gray-500">
+                  Select a file to view
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Resize Handle */}
+          <div
+            className={`w-[1px] hover:w-[2px] bg-[#333333] hover:bg-[#007ACC] cursor-col-resize z-50 transition-all ${
+              isResizing ? "w-[2px] bg-[#007ACC]" : ""
+            }`}
+            onMouseDown={handleMouseDown}
+          />
+
+          {/* File Explorer */}
+          <div
+            className={`bg-[#252526] border-l border-[#333333] transform transition-all duration-200 ease-in-out ${
+              isFileTreeVisible ? "translate-x-0" : "translate-x-full opacity-0"
+            }`}
+            style={{
+              width: isFileTreeVisible ? `${fileTreeWidth}px` : "0px",
+              minWidth: isFileTreeVisible ? "200px" : "0px",
+              maxWidth: isFileTreeVisible ? "600px" : "0px",
+              transition:
+                "width 200ms ease-in-out, transform 200ms ease-in-out, opacity 150ms ease-in-out",
+            }}
+          >
+            <div className="px-4 py-2 text-xs font-medium text-gray-400 border-b border-[#333333] uppercase tracking-wide">
+              Explorer
+            </div>
+            {files.length === 0 ? (
+              <div
+                {...getRootProps()}
+                className={`m-4 p-6 border-2 border-dashed border-[#333333] rounded-lg transition-colors ${
+                  isDragActive ? "bg-[#2a2d2e] border-[#007ACC]" : ""
+                }`}
+              >
+                <input {...getInputProps()} />
+                <p className="text-gray-400 text-sm text-center">
+                  Drop files here to start editing
+                </p>
+              </div>
+            ) : (
+              <div className="py-2">
+                {files.map((file) => (
+                  <ContextMenu key={file.name}>
+                    <ContextMenuTrigger asChild>
+                      <div
+                        onClick={() => handleFileClick(file)}
+                        className={`group flex items-center px-4 py-1.5 cursor-pointer transition-colors ${
+                          activeFile?.name === file.name
+                            ? "bg-[#37373D]"
+                            : "hover:bg-[#2A2D2E]"
+                        }`}
+                      >
+                        <VscCode className="mr-2 text-[#007ACC]" size={16} />
+                        <span className="text-gray-300 text-sm">
+                          {file.name}
+                        </span>
+                      </div>
+                    </ContextMenuTrigger>
+                    <ContextMenuContent>
+                      <ContextMenuItem
+                        inset
+                        onClick={() => handleDownload(file)}
+                      >
+                        Download
+                      </ContextMenuItem>
+                      <ContextMenuItem
+                        inset
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (activeFile?.name === file.name) {
+                            setActiveFile(null);
+                          }
+                          setFiles((prev) =>
+                            prev.filter((f) => f.name !== file.name)
+                          );
+                          localStorage.setItem(
+                            LOCAL_STORAGE_KEY,
+                            JSON.stringify(
+                              files.filter((f) => f.name !== file.name)
+                            )
+                          );
+                        }}
+                      >
+                        Close
+                      </ContextMenuItem>
+                    </ContextMenuContent>
+                  </ContextMenu>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>
