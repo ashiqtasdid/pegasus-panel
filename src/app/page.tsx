@@ -28,6 +28,7 @@ import {
   MAX_FILE_SIZE,
   ALLOWED_FILE_TYPES,
   LOCAL_STORAGE_KEY,
+  MAX_OPEN_FILES,
   MAX_RECENT_FILES,
   IconSize,
 } from "@/constants/constants";
@@ -75,7 +76,7 @@ const Home: React.FC = () => {
       return [];
     }
   });
-
+  const [openFiles, setOpenFiles] = useState<FileItem[]>([]);
   const [activeFile, setActiveFile] = useState<FileItem | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [recentFiles, setRecentFiles] = useState<string[]>([]);
@@ -101,31 +102,54 @@ const Home: React.FC = () => {
   };
   console.log(recentFiles);
 
-  const handleFileClick = useCallback(
-    (file: FileItem) => {
-      // Don't re-open if already active
-      if (activeFile?.name === file.name) {
-        return;
+  const handleFileClick = useCallback((file: FileItem) => {
+    // Create a new file instance with a unique ID and current timestamp
+    const newFile = {
+      ...file,
+      id: `${file.name}-${Date.now()}`, // Add unique ID
+      lastOpened: new Date(),
+    };
+
+    // Update open files list
+    setOpenFiles((prev) => {
+      // If we've reached max tabs, remove the oldest one
+      if (prev.length >= MAX_OPEN_FILES) {
+        return [...prev.slice(1), newFile];
       }
+      // Otherwise just add the new file
+      return [...prev, newFile];
+    });
 
-      // Update active file
-      setActiveFile({
-        ...file,
-        lastOpened: new Date(),
-      });
+    // Make the new file active
+    setActiveFile(newFile);
 
-      // Update recent files list
-      setRecentFiles((prev) => {
-        const filtered = prev.filter((f) => f !== file.name);
-        return [file.name, ...filtered].slice(0, MAX_RECENT_FILES);
-      });
+    // Update recent files list
+    setRecentFiles((prev) => {
+      const filtered = prev.filter((f) => f !== file.name);
+      return [file.name, ...filtered].slice(0, MAX_RECENT_FILES);
+    });
 
-      // Trigger syntax highlighting after state update
-      requestAnimationFrame(() => {
-        Prism.highlightAll();
-      });
+    // Trigger syntax highlighting after state update
+    requestAnimationFrame(() => {
+      Prism.highlightAll();
+    });
+  }, []);
+
+  const handleCloseTab = useCallback(
+    (fileId: string) => {
+      setOpenFiles((prev) => prev.filter((f) => f.id !== fileId));
+
+      // If we're closing the active file, activate the last remaining file
+      if (activeFile?.id === fileId) {
+        setActiveFile((prev) => {
+          const remainingFiles = openFiles.filter((f) => f.id !== fileId);
+          return remainingFiles.length > 0
+            ? remainingFiles[remainingFiles.length - 1]
+            : null;
+        });
+      }
     },
-    [activeFile]
+    [activeFile, openFiles]
   );
 
   useEffect(() => {
@@ -172,6 +196,7 @@ const Home: React.FC = () => {
               setFiles((prev) => [
                 ...prev,
                 {
+                  id: `${file.name}-${Date.now()}`, // Add unique ID
                   name: file.name,
                   content: reader.result as string,
                   type: file.type,
@@ -184,11 +209,12 @@ const Home: React.FC = () => {
               setFiles((prev) => [
                 ...prev,
                 {
+                  id: `${file.name}-${Date.now()}`, // Add unique ID
                   name: file.name,
                   content: reader.result as string,
                   type: file.type,
                   lastOpened: new Date(),
-                  isBase64: true,
+                  isBase64: false,
                 },
               ]);
             }
@@ -243,7 +269,16 @@ const Home: React.FC = () => {
         ...activeFile,
         content: content,
       };
+
+      // Update active file
       setActiveFile(updatedFile);
+
+      // Update open files
+      setOpenFiles((prev) =>
+        prev.map((f) => (f.name === activeFile.name ? updatedFile : f))
+      );
+
+      // Update all files
       setFiles((prev) =>
         prev.map((f) => (f.name === activeFile.name ? updatedFile : f))
       );
@@ -422,30 +457,35 @@ const Home: React.FC = () => {
           {/* Editor Area */}
           <div className="flex-1 bg-[#1e1e1e] flex flex-col">
             {/* Tabs */}
-            <div className="h-[35px] flex items-center bg-[#252526] border-b border-[#333333]">
-              {activeFile && (
-                <div className="group flex items-center h-[35px] px-3 bg-[#1e1e1e] border-r border-[#333333] min-w-[120px] max-w-[200px]">
+            <div className="h-[35px] flex items-center bg-[#252526] border-b border-[#333333] overflow-x-auto">
+              {openFiles.map((file) => (
+                <div
+                  key={file.id} // Use id instead of name
+                  className={`group flex items-center h-[35px] px-3 border-r border-[#333333] min-w-[120px] max-w-[200px] cursor-pointer ${
+                    activeFile?.id === file.id // Compare ids instead of names
+                      ? "bg-[#1e1e1e]"
+                      : "bg-[#2d2d2d] hover:bg-[#2a2a2a]"
+                  }`}
+                  onClick={() => setActiveFile(file)}
+                >
                   <VscCode className="mr-2 text-[#007ACC]" size={16} />
                   <span className="text-gray-300 text-sm truncate flex-1">
-                    {activeFile.name}
+                    {file.name}
                   </span>
-                  {isSaving ? (
-                    <span className="text-xs text-gray-400 ml-2">
-                      Saving...
-                    </span>
-                  ) : (
-                    <button
-                      className="opacity-0 group-hover:opacity-100 hover:bg-[#333333] p-0.5 rounded transition-all"
-                      onClick={() => setActiveFile(null)}
-                    >
-                      <VscClose
-                        className="text-gray-400 hover:text-white"
-                        size={16}
-                      />
-                    </button>
-                  )}
+                  <button
+                    className="opacity-0 group-hover:opacity-100 hover:bg-[#333333] p-0.5 rounded transition-all"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleCloseTab(file.id); // Pass id instead of name
+                    }}
+                  >
+                    <VscClose
+                      className="text-gray-400 hover:text-white"
+                      size={16}
+                    />
+                  </button>
                 </div>
-              )}
+              ))}
             </div>
 
             {/* Editor Content */}
