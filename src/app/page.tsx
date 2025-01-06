@@ -26,11 +26,9 @@ import { ImportModal } from "@/components/ImportModal";
 import toast from "react-hot-toast";
 import {
   MAX_FILE_SIZE,
-  ALLOWED_FILE_TYPES,
   LOCAL_STORAGE_KEY,
   MAX_OPEN_FILES,
   MAX_RECENT_FILES,
-  IconSize,
 } from "@/constants/constants";
 import {
   ContextMenu,
@@ -40,7 +38,6 @@ import {
 } from "@/components/ui/context-menu";
 import { storage } from "@/lib/utils";
 import { SidebarIcon } from "@/types/type";
-import { FileValidationError } from "@/types/type";
 
 const notify = {
   error: (message: string) => toast.error(message),
@@ -80,7 +77,7 @@ const Home: React.FC = () => {
   const [activeFile, setActiveFile] = useState<FileItem | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [recentFiles, setRecentFiles] = useState<string[]>([]);
-
+  console.log(isSaving);
   const [fileTreeWidth, setFileTreeWidth] = useState(() => {
     return storage.get("fileTreeWidth", 256);
   });
@@ -135,13 +132,15 @@ const Home: React.FC = () => {
     });
   }, []);
 
+  console.log(toggleFileTree);
+
   const handleCloseTab = useCallback(
     (fileId: string) => {
       setOpenFiles((prev) => prev.filter((f) => f.id !== fileId));
 
       // If we're closing the active file, activate the last remaining file
       if (activeFile?.id === fileId) {
-        setActiveFile((prev) => {
+        setActiveFile(() => {
           const remainingFiles = openFiles.filter((f) => f.id !== fileId);
           return remainingFiles.length > 0
             ? remainingFiles[remainingFiles.length - 1]
