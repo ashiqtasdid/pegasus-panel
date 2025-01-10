@@ -3,6 +3,7 @@ export interface FileItem {
   name: string;
   content: string;
   type: string;
+  path: string; 
   lastOpened?: Date;
   isBase64?: boolean;
 }
@@ -10,6 +11,12 @@ export interface FileItem {
 export interface FileValidationError {
   code: string;
   message: string;
+}
+
+export interface FolderItem {
+  name: string;
+  path: string;
+  isFolder: true;
 }
 
 export interface SidebarIcon {

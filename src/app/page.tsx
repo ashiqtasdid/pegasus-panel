@@ -190,33 +190,33 @@ const Home: React.FC = () => {
               file.type.startsWith("text/") ||
               file.name.match(/\.(txt|js|jsx|ts|tsx|md|css|html|json)$/i);
 
-            if (isText) {
-              // Handle text files as before
-              setFiles((prev) => [
-                ...prev,
-                {
-                  id: `${file.name}-${Date.now()}`, // Add unique ID
-                  name: file.name,
-                  content: reader.result as string,
-                  type: file.type,
-                  lastOpened: new Date(),
-                  isBase64: false,
-                },
-              ]);
-            } else {
-              // Handle binary files with base64
-              setFiles((prev) => [
-                ...prev,
-                {
-                  id: `${file.name}-${Date.now()}`, // Add unique ID
-                  name: file.name,
-                  content: reader.result as string,
-                  type: file.type,
-                  lastOpened: new Date(),
-                  isBase64: false,
-                },
-              ]);
-            }
+              if (isText) {
+                setFiles((prev) => [
+                  ...prev,
+                  {
+                    id: `${file.name}-${Date.now()}`,
+                    name: file.name,
+                    content: reader.result as string,
+                    type: file.type,
+                    lastOpened: new Date(),
+                    isBase64: false,
+                    path: file.name, // Add required path property
+                  },
+                ]);
+              } else {
+                setFiles((prev) => [
+                  ...prev,
+                  {
+                    id: `${file.name}-${Date.now()}`,
+                    name: file.name,
+                    content: reader.result as string,
+                    type: file.type,
+                    lastOpened: new Date(),
+                    isBase64: true, // Set to true for binary files
+                    path: file.name, // Add required path property
+                  },
+                ]);
+              }
           };
 
           if (
