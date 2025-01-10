@@ -9,7 +9,6 @@ import {
   VscRemote,
   VscSync,
   VscExtensions,
-  VscCode,
   VscClose,
   VscTrash,
 } from "react-icons/vsc";
