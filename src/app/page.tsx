@@ -45,7 +45,58 @@ import {
 } from "@/components/ui/context-menu";
 import { storage } from "@/lib/utils";
 import { SidebarIcon } from "@/types/type";
+import {
+  mdiLanguageJavascript,
+  mdiLanguageTypescript,
+  mdiReact,
+  mdiLanguageCss3,
+  mdiLanguageHtml5,
+  mdiCodeJson,
+  mdiLanguageMarkdown,
+  mdiLanguagePython,
+  mdiFileDocument,
+  mdiFile,
+  mdiLanguageC,
+  mdiLanguageCpp,
+  mdiLanguageCsharp,
+} from '@mdi/js';
+import { Icon } from '@mdi/react';
 
+
+const getFileIcon = (fileName: string) => {
+  const extension = fileName.split('.').pop()?.toLowerCase();
+  
+  switch (extension) {
+    case 'js':
+      return <Icon path={mdiLanguageJavascript} size={0.8} className="mr-2 text-[#F0DB4F]" />;
+    case 'ts':
+      return <Icon path={mdiLanguageTypescript} size={0.8} className="mr-2 text-[#007ACC]" />;
+    case 'jsx':
+    case 'tsx':
+      return <Icon path={mdiReact} size={0.8} className="mr-2 text-[#61DAFB]" />;
+    case 'css':
+      return <Icon path={mdiLanguageCss3} size={0.8} className="mr-2 text-[#264DE4]" />;
+    case 'html':
+      return <Icon path={mdiLanguageHtml5} size={0.8} className="mr-2 text-[#E34F26]" />;
+    case 'json':
+      return <Icon path={mdiCodeJson} size={0.8} className="mr-2 text-[#F0DB4F]" />;
+    case 'md':
+      return <Icon path={mdiLanguageMarkdown} size={0.8} className="mr-2 text-[#FFF]" />;
+    case 'py':
+      return <Icon path={mdiLanguagePython} size={0.8} className="mr-2 text-[#3776AB]" />;
+    case 'txt':
+      return <Icon path={mdiFileDocument} size={0.8} className="mr-2 text-[#FFF]" />;
+    case 'c':
+      return <Icon path={mdiLanguageC} size={0.8} className="mr-2 text-[#FFF]" />;
+    case 'cpp':
+      return <Icon path={mdiLanguageCpp} size={0.8} className="mr-2 text-[#FFF]" />;
+    case 'cs':
+      return <Icon path={mdiLanguageCsharp} size={0.8} className="mr-2 text-[#FFF]" />;
+
+    default:
+      return <Icon path={mdiFile} size={0.8} className="mr-2 text-[#FFF]" />;
+  }
+};
 const notify = {
   error: (message: string) => toast.error(message),
   success: (message: string) => toast.success(message),
@@ -544,6 +595,8 @@ const Home: React.FC = () => {
   };
 
   const renderFileTreeItem = useCallback(
+
+    
     (file: FileItem, depth = 0) => {
       const isExpanded = expandedFolders.has(file.id);
       const isSelected =
@@ -741,7 +794,7 @@ const Home: React.FC = () => {
                   }`}
                   onClick={() => setActiveFile(file)}
                 >
-                  <VscCode className="mr-2 text-[#007ACC]" size={16} />
+                  {getFileIcon(file.name)}
                   <span className="text-gray-300 text-sm truncate flex-1">
                     {file.name}
                   </span>
