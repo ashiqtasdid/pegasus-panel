@@ -573,6 +573,32 @@ const Home: React.FC = () => {
     [expandedFolders, selectedFolder, handleFileClick, handleCreateFile, handleCreateFolder, files]
   );
 
+  useEffect(() => {
+    const handleGlobalClick = (event: MouseEvent) => {
+      const fileTree = document.getElementById('file-tree');
+      const target = event.target as HTMLElement;
+      
+      if (fileTree && !fileTree.contains(target)) {
+        setSelectedFolder(null);
+      }
+    };
+  
+    document.addEventListener('click', handleGlobalClick);
+    
+    return () => {
+      document.removeEventListener('click', handleGlobalClick);
+    };
+  }, []);
+
+  const handleFileTreeClick = (event: React.MouseEvent) => {
+    const target = event.target as HTMLElement;
+    const folderElement = target.closest('[data-folder-id]');
+    
+    if (!folderElement) {
+      setSelectedFolder(null);
+    }
+  };
+
   return (
     <ErrorBoundary>
       {showImportModal && <ImportModal onChoice={handleImportChoice} />}
@@ -698,7 +724,8 @@ const Home: React.FC = () => {
           />
 
           {/* File Explorer */}
-          <div
+          <div id="file-tree"
+            onClick={handleFileTreeClick}
             className={`bg-[#252526] border-l border-[#333333] transform transition-all duration-200 ease-in-out ${
               isFileTreeVisible ? "translate-x-0" : "translate-x-full opacity-0"
             }`}
