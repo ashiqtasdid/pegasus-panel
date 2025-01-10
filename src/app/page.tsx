@@ -11,6 +11,7 @@ import {
   VscExtensions,
   VscCode,
   VscClose,
+  VscTrash,
 } from "react-icons/vsc";
 import { useDropzone } from "react-dropzone";
 import Prism from "prismjs";
@@ -101,13 +102,13 @@ const Home: React.FC = () => {
   );
 
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
 
   const handleFolderClick = useCallback(
     (folderId: string, event: React.MouseEvent) => {
       event.stopPropagation();
-
-      // Set selected folder
       setSelectedFolder(folderId);
+      setSelectedFile(null); 
 
       // Toggle folder expansion
       setExpandedFolders((prev) => {
@@ -121,7 +122,7 @@ const Home: React.FC = () => {
       });
     },
     []
-  );
+);
 
   const toggleFileTree = (): void => {
     setIsFileTreeVisible((prev: boolean): boolean => {
@@ -132,45 +133,48 @@ const Home: React.FC = () => {
   };
   console.log(recentFiles);
 
-  const handleFileClick = useCallback((file: FileItem) => {
-    // Check if file is already open
-    const existingFile = openFiles.find(f => f.path === file.path);
-    
-    if (existingFile) {
-      // If already open, just switch to it
-      setActiveFile(existingFile);
-      return;
-    }
-  
-    // If not open, create new file instance
-    const newFile = {
-      ...file,
-      id: `${file.name}-${Date.now()}`,
-      lastOpened: new Date(),
-    };
-  
-    // Update open files list
-    setOpenFiles((prev) => {
-      if (prev.length >= MAX_OPEN_FILES) {
-        return [...prev.slice(1), newFile];
+  const handleFileClick = useCallback(
+    (file: FileItem, e: React.MouseEvent) => {
+      e.stopPropagation();
+      setSelectedFile(file.id);
+      setSelectedFolder(null);
+      // Check if file is already open
+      const existingFile = openFiles.find((f) => f.path === file.path);
+      if (existingFile) {
+        setActiveFile(existingFile);
+        return;
       }
-      return [...prev, newFile];
-    });
-  
-    // Make the new file active
-    setActiveFile(newFile);
-  
-    // Update recent files list
-    setRecentFiles((prev) => {
-      const filtered = prev.filter((f) => f !== file.name);
-      return [file.name, ...filtered].slice(0, MAX_RECENT_FILES);
-    });
-  
-    // Trigger syntax highlighting
-    requestAnimationFrame(() => {
-      Prism.highlightAll();
-    });
-  }, [openFiles]);
+      // If not open, create new file instance
+      const newFile = {
+        ...file,
+        id: `${file.name}-${Date.now()}`,
+        lastOpened: new Date(),
+      };
+
+      // Update open files list
+      setOpenFiles((prev) => {
+        if (prev.length >= MAX_OPEN_FILES) {
+          return [...prev.slice(1), newFile];
+        }
+        return [...prev, newFile];
+      });
+
+      // Make the new file active
+      setActiveFile(newFile);
+
+      // Update recent files list
+      setRecentFiles((prev) => {
+        const filtered = prev.filter((f) => f !== file.name);
+        return [file.name, ...filtered].slice(0, MAX_RECENT_FILES);
+      });
+
+      // Trigger syntax highlighting
+      requestAnimationFrame(() => {
+        Prism.highlightAll();
+      });
+    },
+    [openFiles]
+  );
 
   console.log(toggleFileTree);
 
@@ -361,29 +365,60 @@ const Home: React.FC = () => {
     return () => window.removeEventListener("keydown", handleSave);
   }, [handleSave]);
 
-  const handleDownload = useCallback((file: FileItem) => {
-    let blob;
+  const handleDeleteFile = useCallback(
+    (fileId: string) => {
+      const fileToDelete = files.find((f) => f.id === fileId);
+      if (!fileToDelete) return;
 
-    if (file.isBase64) {
-      // Handle binary files
-      const base64Data = file.content.split(",")[1];
-      blob = new Blob([Buffer.from(base64Data, "base64")], { type: file.type });
-    } else {
-      // Handle text files
-      blob = new Blob([file.content], { type: file.type });
-    }
+      if (confirm(`Are you sure you want to delete ${fileToDelete.name}?`)) {
+        // Remove from files array
+        const newFiles = files.filter((f) => {
+          if (fileToDelete.type === "folder") {
+            return !f.path.startsWith(fileToDelete.path);
+          }
+          return f.id !== fileId;
+        });
 
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = file.name;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    window.URL.revokeObjectURL(url);
+        setFiles(newFiles);
 
-    notify.success(`Downloading ${file.name}`);
-  }, []);
+        // Close file in editor if open
+        setOpenFiles((prev) => prev.filter((f) => f.id !== fileId));
+
+        // Clear active file if it was deleted
+        if (activeFile?.id === fileId) {
+          setActiveFile(null);
+        }
+
+        // Clear selected file
+        setSelectedFile(null);
+      }
+    },
+    [files, activeFile]
+  );
+
+  // const handleDownload = useCallback((file: FileItem) => {
+  //   let blob;
+
+  //   if (file.isBase64) {
+  //     // Handle binary files
+  //     const base64Data = file.content.split(",")[1];
+  //     blob = new Blob([Buffer.from(base64Data, "base64")], { type: file.type });
+  //   } else {
+  //     // Handle text files
+  //     blob = new Blob([file.content], { type: file.type });
+  //   }
+
+  //   const url = window.URL.createObjectURL(blob);
+  //   const link = document.createElement("a");
+  //   link.href = url;
+  //   link.download = file.name;
+  //   document.body.appendChild(link);
+  //   link.click();
+  //   document.body.removeChild(link);
+  //   window.URL.revokeObjectURL(url);
+
+  //   notify.success(`Downloading ${file.name}`);
+  // }, []);
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -437,7 +472,6 @@ const Home: React.FC = () => {
     // Split path into segments
     const segments = fullPath.split("/");
     const fileNameFromPath = segments.pop()!;
-    const folderPath = segments.join("/");
 
     // Create folders if they don't exist
     let currentPath = "";
@@ -511,15 +545,16 @@ const Home: React.FC = () => {
   const renderFileTreeItem = useCallback(
     (file: FileItem, depth = 0) => {
       const isExpanded = expandedFolders.has(file.id);
-      const isSelected = file.type === "folder" ? selectedFolder === file.id : false;
+      const isSelected =
+        file.type === "folder" ? selectedFolder === file.id : false;
       const paddingLeft = depth * 12 + 16;
-  
+
       if (file.type === "folder") {
         const children = files.filter((f) => {
           const parentPath = f.path.split("/").slice(0, -1).join("/");
           return parentPath === file.path;
         });
-  
+
         return (
           <React.Fragment key={file.id}>
             <ContextMenu>
@@ -532,7 +567,10 @@ const Home: React.FC = () => {
                   style={{ paddingLeft: `${paddingLeft}px` }}
                 >
                   {isExpanded ? (
-                    <VscFolderOpened className="mr-2 text-[#dcb67a]" size={16} />
+                    <VscFolderOpened
+                      className="mr-2 text-[#dcb67a]"
+                      size={16}
+                    />
                   ) : (
                     <VscFolder className="mr-2 text-[#dcb67a]" size={16} />
                   )}
@@ -553,49 +591,68 @@ const Home: React.FC = () => {
           </React.Fragment>
         );
       }
-  
+
       // File rendering without selection
       return (
         <ContextMenu key={file.id}>
           <ContextMenuTrigger asChild>
             <div
-              onClick={() => handleFileClick(file)}
-              className={`group flex items-center py-1.5 cursor-pointer transition-colors hover:bg-[#2A2D2E]`}
+              onClick={(e) => handleFileClick(file, e)}
+              className={`group flex items-center py-1.5 cursor-pointer transition-colors ${
+                selectedFile === file.id ? "bg-[#37373D]" : "hover:bg-[#2A2D2E]"
+              }`}
               style={{ paddingLeft: `${paddingLeft}px` }}
             >
               <VscCode className="mr-2 text-[#007ACC]" size={16} />
               <span className="text-gray-300 text-sm">{file.name}</span>
             </div>
           </ContextMenuTrigger>
+          <ContextMenuContent>
+            <ContextMenuItem inset onClick={() => handleDeleteFile(file.id)}>
+              <VscTrash size={16} />
+            </ContextMenuItem>
+          </ContextMenuContent>
         </ContextMenu>
       );
     },
-    [expandedFolders, selectedFolder, handleFileClick, handleCreateFile, handleCreateFolder, files]
+    [
+      expandedFolders,
+      files,
+      handleCreateFile,
+      handleCreateFolder,
+      handleDeleteFile,
+      handleFolderClick,
+      handleFileClick,
+      selectedFile,
+      selectedFolder,
+    ]
   );
 
   useEffect(() => {
     const handleGlobalClick = (event: MouseEvent) => {
-      const fileTree = document.getElementById('file-tree');
+      const fileTree = document.getElementById("file-tree");
       const target = event.target as HTMLElement;
-      
+
       if (fileTree && !fileTree.contains(target)) {
         setSelectedFolder(null);
       }
     };
-  
-    document.addEventListener('click', handleGlobalClick);
-    
+
+    document.addEventListener("click", handleGlobalClick);
+
     return () => {
-      document.removeEventListener('click', handleGlobalClick);
+      document.removeEventListener("click", handleGlobalClick);
     };
   }, []);
 
   const handleFileTreeClick = (event: React.MouseEvent) => {
     const target = event.target as HTMLElement;
-    const folderElement = target.closest('[data-folder-id]');
-    
-    if (!folderElement) {
+    const folderElement = target.closest("[data-folder-id]");
+    const fileElement = target.closest("[data-file-id]");
+
+    if (!folderElement && !fileElement) {
       setSelectedFolder(null);
+      setSelectedFile(null);
     }
   };
 
@@ -724,7 +781,8 @@ const Home: React.FC = () => {
           />
 
           {/* File Explorer */}
-          <div id="file-tree"
+          <div
+            id="file-tree"
             onClick={handleFileTreeClick}
             className={`bg-[#252526] border-l border-[#333333] transform transition-all duration-200 ease-in-out ${
               isFileTreeVisible ? "translate-x-0" : "translate-x-full opacity-0"
@@ -754,6 +812,15 @@ const Home: React.FC = () => {
                 >
                   <VscNewFolder size={16} />
                 </button>
+                {selectedFile && (
+                  <button
+                    onClick={() => handleDeleteFile(selectedFile)}
+                    className="p-1 hover:bg-[#37373D] rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Delete Selected File"
+                  >
+                    <VscTrash size={16} />
+                  </button>
+                )}
               </div>
             </div>
             {files.length === 0 ? (
