@@ -124,6 +124,7 @@ const Home: React.FC = () => {
     []
 );
 
+
   const toggleFileTree = (): void => {
     setIsFileTreeVisible((prev: boolean): boolean => {
       const newState: boolean = !prev;
