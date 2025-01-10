@@ -133,37 +133,44 @@ const Home: React.FC = () => {
   console.log(recentFiles);
 
   const handleFileClick = useCallback((file: FileItem) => {
-    // Create a new file instance with a unique ID and current timestamp
+    // Check if file is already open
+    const existingFile = openFiles.find(f => f.path === file.path);
+    
+    if (existingFile) {
+      // If already open, just switch to it
+      setActiveFile(existingFile);
+      return;
+    }
+  
+    // If not open, create new file instance
     const newFile = {
       ...file,
-      id: `${file.name}-${Date.now()}`, // Add unique ID
+      id: `${file.name}-${Date.now()}`,
       lastOpened: new Date(),
     };
-
+  
     // Update open files list
     setOpenFiles((prev) => {
-      // If we've reached max tabs, remove the oldest one
       if (prev.length >= MAX_OPEN_FILES) {
         return [...prev.slice(1), newFile];
       }
-      // Otherwise just add the new file
       return [...prev, newFile];
     });
-
+  
     // Make the new file active
     setActiveFile(newFile);
-
+  
     // Update recent files list
     setRecentFiles((prev) => {
       const filtered = prev.filter((f) => f !== file.name);
       return [file.name, ...filtered].slice(0, MAX_RECENT_FILES);
     });
-
-    // Trigger syntax highlighting after state update
+  
+    // Trigger syntax highlighting
     requestAnimationFrame(() => {
       Prism.highlightAll();
     });
-  }, []);
+  }, [openFiles]);
 
   console.log(toggleFileTree);
 
@@ -504,15 +511,15 @@ const Home: React.FC = () => {
   const renderFileTreeItem = useCallback(
     (file: FileItem, depth = 0) => {
       const isExpanded = expandedFolders.has(file.id);
-      const isSelected = selectedFolder === file.id;
+      const isSelected = file.type === "folder" ? selectedFolder === file.id : false;
       const paddingLeft = depth * 12 + 16;
-
+  
       if (file.type === "folder") {
         const children = files.filter((f) => {
           const parentPath = f.path.split("/").slice(0, -1).join("/");
           return parentPath === file.path;
         });
-
+  
         return (
           <React.Fragment key={file.id}>
             <ContextMenu>
@@ -525,10 +532,7 @@ const Home: React.FC = () => {
                   style={{ paddingLeft: `${paddingLeft}px` }}
                 >
                   {isExpanded ? (
-                    <VscFolderOpened
-                      className="mr-2 text-[#dcb67a]"
-                      size={16}
-                    />
+                    <VscFolderOpened className="mr-2 text-[#dcb67a]" size={16} />
                   ) : (
                     <VscFolder className="mr-2 text-[#dcb67a]" size={16} />
                   )}
@@ -549,17 +553,14 @@ const Home: React.FC = () => {
           </React.Fragment>
         );
       }
-
+  
+      // File rendering without selection
       return (
         <ContextMenu key={file.id}>
           <ContextMenuTrigger asChild>
             <div
               onClick={() => handleFileClick(file)}
-              className={`group flex items-center py-1.5 cursor-pointer transition-colors ${
-                activeFile?.id === file.id
-                  ? "bg-[#37373D]"
-                  : "hover:bg-[#2A2D2E]"
-              }`}
+              className={`group flex items-center py-1.5 cursor-pointer transition-colors hover:bg-[#2A2D2E]`}
               style={{ paddingLeft: `${paddingLeft}px` }}
             >
               <VscCode className="mr-2 text-[#007ACC]" size={16} />
@@ -569,14 +570,7 @@ const Home: React.FC = () => {
         </ContextMenu>
       );
     },
-    [
-      expandedFolders,
-      selectedFolder,
-      handleFileClick,
-      handleCreateFile,
-      handleCreateFolder,
-      files,
-    ]
+    [expandedFolders, selectedFolder, handleFileClick, handleCreateFile, handleCreateFolder, files]
   );
 
   return (
