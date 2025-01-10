@@ -657,8 +657,8 @@ const Home: React.FC = () => {
               }`}
               style={{ paddingLeft: `${paddingLeft}px` }}
             >
-              <VscCode className="mr-2 text-[#007ACC]" size={16} />
-              <span className="text-gray-300 text-sm">{file.name}</span>
+                  {getFileIcon(file.name)}
+                  <span className="text-gray-300 text-sm">{file.name}</span>
             </div>
           </ContextMenuTrigger>
           <ContextMenuContent>
