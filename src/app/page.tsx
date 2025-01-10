@@ -19,6 +19,12 @@ import "prismjs/components/prism-javascript";
 import "prismjs/components/prism-typescript";
 import "prismjs/components/prism-jsx";
 import "prismjs/components/prism-tsx";
+import {
+  VscFolder,
+  VscFolderOpened,
+  VscNewFile,
+  VscNewFolder,
+} from "react-icons/vsc";
 import dynamic from "next/dynamic";
 import { useDebouncedSave } from "@/hooks/useDebounce";
 import { FileItem } from "@/types/type";
@@ -89,6 +95,33 @@ const Home: React.FC = () => {
   const [isFileTreeVisible, setIsFileTreeVisible] = useState(() => {
     return storage.get("fileTreeVisible", true);
   });
+
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
+    new Set()
+  );
+
+  const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
+
+  const handleFolderClick = useCallback(
+    (folderId: string, event: React.MouseEvent) => {
+      event.stopPropagation();
+
+      // Set selected folder
+      setSelectedFolder(folderId);
+
+      // Toggle folder expansion
+      setExpandedFolders((prev) => {
+        const next = new Set(prev);
+        if (next.has(folderId)) {
+          next.delete(folderId);
+        } else {
+          next.add(folderId);
+        }
+        return next;
+      });
+    },
+    []
+  );
 
   const toggleFileTree = (): void => {
     setIsFileTreeVisible((prev: boolean): boolean => {
@@ -190,33 +223,33 @@ const Home: React.FC = () => {
               file.type.startsWith("text/") ||
               file.name.match(/\.(txt|js|jsx|ts|tsx|md|css|html|json)$/i);
 
-              if (isText) {
-                setFiles((prev) => [
-                  ...prev,
-                  {
-                    id: `${file.name}-${Date.now()}`,
-                    name: file.name,
-                    content: reader.result as string,
-                    type: file.type,
-                    lastOpened: new Date(),
-                    isBase64: false,
-                    path: file.name, // Add required path property
-                  },
-                ]);
-              } else {
-                setFiles((prev) => [
-                  ...prev,
-                  {
-                    id: `${file.name}-${Date.now()}`,
-                    name: file.name,
-                    content: reader.result as string,
-                    type: file.type,
-                    lastOpened: new Date(),
-                    isBase64: true, // Set to true for binary files
-                    path: file.name, // Add required path property
-                  },
-                ]);
-              }
+            if (isText) {
+              setFiles((prev) => [
+                ...prev,
+                {
+                  id: `${file.name}-${Date.now()}`,
+                  name: file.name,
+                  content: reader.result as string,
+                  type: file.type,
+                  lastOpened: new Date(),
+                  isBase64: false,
+                  path: file.name, // Add required path property
+                },
+              ]);
+            } else {
+              setFiles((prev) => [
+                ...prev,
+                {
+                  id: `${file.name}-${Date.now()}`,
+                  name: file.name,
+                  content: reader.result as string,
+                  type: file.type,
+                  lastOpened: new Date(),
+                  isBase64: true, // Set to true for binary files
+                  path: file.name, // Add required path property
+                },
+              ]);
+            }
           };
 
           if (
@@ -377,12 +410,175 @@ const Home: React.FC = () => {
     };
   }, [isResizing, startX, startWidth, fileTreeWidth]);
 
+  const handleCreateFile = useCallback(() => {
+    const selectedFolderPath =
+      files.find((f) => f.id === selectedFolder)?.path || "";
+    const fileName = prompt("Enter file name:");
+    if (!fileName) return;
+
+    // Build full path
+    const fullPath = selectedFolderPath
+      ? `${selectedFolderPath}/${fileName}`
+      : fileName;
+
+    // Check if file already exists
+    if (files.some((f) => f.path === fullPath)) {
+      notify.error("File with same path already exists");
+      return;
+    }
+
+    // Split path into segments
+    const segments = fullPath.split("/");
+    const fileNameFromPath = segments.pop()!;
+    const folderPath = segments.join("/");
+
+    // Create folders if they don't exist
+    let currentPath = "";
+    for (const segment of segments) {
+      currentPath = currentPath ? `${currentPath}/${segment}` : segment;
+      if (!files.some((f) => f.path === currentPath && f.type === "folder")) {
+        setFiles((prev) => [
+          ...prev,
+          {
+            id: `${currentPath}-${Date.now()}`,
+            name: segment,
+            content: "",
+            type: "folder",
+            lastOpened: new Date(),
+            isBase64: false,
+            path: currentPath,
+            children: [],
+            isFolder: true,
+          },
+        ]);
+      }
+    }
+
+    // Create the file
+    setFiles((prev) => [
+      ...prev,
+      {
+        id: `${fullPath}-${Date.now()}`,
+        name: fileNameFromPath,
+        content: "",
+        type: "text/plain",
+        lastOpened: new Date(),
+        isBase64: false,
+        path: fullPath,
+      },
+    ]);
+  }, [files, selectedFolder]);
+
+  const handleCreateFolder = useCallback(() => {
+    const folderName = prompt("Enter new folder name:");
+    if (!folderName) return;
+
+    if (files.some((f) => f.name === folderName)) {
+      notify.error("Folder with same name already exists");
+      return;
+    }
+
+    setFiles((prev) => [
+      ...prev,
+      {
+        id: `${folderName}-${Date.now()}`,
+        name: folderName,
+        content: "",
+        type: "folder",
+        lastOpened: new Date(),
+        isBase64: false,
+        path: folderName,
+        children: [],
+        isFolder: true,
+      },
+    ]);
+  }, [files]);
+
   const handleMouseDown = (e: React.MouseEvent) => {
     setIsResizing(true);
     setStartX(e.clientX);
     setStartWidth(fileTreeWidth);
     e.preventDefault();
   };
+
+  const renderFileTreeItem = useCallback(
+    (file: FileItem, depth = 0) => {
+      const isExpanded = expandedFolders.has(file.id);
+      const isSelected = selectedFolder === file.id;
+      const paddingLeft = depth * 12 + 16;
+
+      if (file.type === "folder") {
+        const children = files.filter((f) => {
+          const parentPath = f.path.split("/").slice(0, -1).join("/");
+          return parentPath === file.path;
+        });
+
+        return (
+          <React.Fragment key={file.id}>
+            <ContextMenu>
+              <ContextMenuTrigger asChild>
+                <div
+                  onClick={(e) => handleFolderClick(file.id, e)}
+                  className={`group flex items-center py-1.5 cursor-pointer transition-colors ${
+                    isSelected ? "bg-[#37373D]" : "hover:bg-[#2A2D2E]"
+                  }`}
+                  style={{ paddingLeft: `${paddingLeft}px` }}
+                >
+                  {isExpanded ? (
+                    <VscFolderOpened
+                      className="mr-2 text-[#dcb67a]"
+                      size={16}
+                    />
+                  ) : (
+                    <VscFolder className="mr-2 text-[#dcb67a]" size={16} />
+                  )}
+                  <span className="text-gray-300 text-sm">{file.name}</span>
+                </div>
+              </ContextMenuTrigger>
+              <ContextMenuContent>
+                <ContextMenuItem inset onClick={() => handleCreateFile()}>
+                  New File
+                </ContextMenuItem>
+                <ContextMenuItem inset onClick={() => handleCreateFolder()}>
+                  New Folder
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
+            {isExpanded &&
+              children.map((child) => renderFileTreeItem(child, depth + 1))}
+          </React.Fragment>
+        );
+      }
+
+      return (
+        <ContextMenu key={file.id}>
+          <ContextMenuTrigger asChild>
+            <div
+              onClick={() => handleFileClick(file)}
+              className={`group flex items-center py-1.5 cursor-pointer transition-colors ${
+                activeFile?.id === file.id
+                  ? "bg-[#37373D]"
+                  : "hover:bg-[#2A2D2E]"
+              }`}
+              style={{ paddingLeft: `${paddingLeft}px` }}
+            >
+              <VscCode className="mr-2 text-[#007ACC]" size={16} />
+              <span className="text-gray-300 text-sm">{file.name}</span>
+            </div>
+          </ContextMenuTrigger>
+        </ContextMenu>
+      );
+    },
+    [
+      expandedFolders,
+      selectedFolder,
+      handleFileClick,
+      handleCreateFile,
+      handleCreateFolder,
+      files,
+    ]
+  );
+
   return (
     <ErrorBoundary>
       {showImportModal && <ImportModal onChoice={handleImportChoice} />}
@@ -520,8 +716,24 @@ const Home: React.FC = () => {
                 "width 200ms ease-in-out, transform 200ms ease-in-out, opacity 150ms ease-in-out",
             }}
           >
-            <div className="px-4 py-2 text-xs font-medium text-gray-400 border-b border-[#333333] uppercase tracking-wide">
-              Explorer
+            <div className="flex items-center justify-between px-4 py-2 text-xs font-medium text-gray-400 border-b border-[#333333]">
+              <span className="uppercase tracking-wide">Explorer</span>
+              <div className="flex space-x-2">
+                <button
+                  onClick={handleCreateFile}
+                  className="p-1 hover:bg-[#37373D] rounded transition-colors"
+                  title="New File"
+                >
+                  <VscNewFile size={16} />
+                </button>
+                <button
+                  onClick={handleCreateFolder}
+                  className="p-1 hover:bg-[#37373D] rounded transition-colors"
+                  title="New Folder"
+                >
+                  <VscNewFolder size={16} />
+                </button>
+              </div>
             </div>
             {files.length === 0 ? (
               <div
@@ -537,53 +749,9 @@ const Home: React.FC = () => {
               </div>
             ) : (
               <div className="py-2">
-                {files.map((file) => (
-                  <ContextMenu key={file.name}>
-                    <ContextMenuTrigger asChild>
-                      <div
-                        onClick={() => handleFileClick(file)}
-                        className={`group flex items-center px-4 py-1.5 cursor-pointer transition-colors ${
-                          activeFile?.name === file.name
-                            ? "bg-[#37373D]"
-                            : "hover:bg-[#2A2D2E]"
-                        }`}
-                      >
-                        <VscCode className="mr-2 text-[#007ACC]" size={16} />
-                        <span className="text-gray-300 text-sm">
-                          {file.name}
-                        </span>
-                      </div>
-                    </ContextMenuTrigger>
-                    <ContextMenuContent>
-                      <ContextMenuItem
-                        inset
-                        onClick={() => handleDownload(file)}
-                      >
-                        Download
-                      </ContextMenuItem>
-                      <ContextMenuItem
-                        inset
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (activeFile?.name === file.name) {
-                            setActiveFile(null);
-                          }
-                          setFiles((prev) =>
-                            prev.filter((f) => f.name !== file.name)
-                          );
-                          localStorage.setItem(
-                            LOCAL_STORAGE_KEY,
-                            JSON.stringify(
-                              files.filter((f) => f.name !== file.name)
-                            )
-                          );
-                        }}
-                      >
-                        Close
-                      </ContextMenuItem>
-                    </ContextMenuContent>
-                  </ContextMenu>
-                ))}
+                {files
+                  .filter((f) => !f.path.includes("/")) // Show only root level items
+                  .map((file) => renderFileTreeItem(file))}
               </div>
             )}
           </div>

@@ -3,9 +3,11 @@ export interface FileItem {
   name: string;
   content: string;
   type: string;
-  path: string; 
-  lastOpened?: Date;
-  isBase64?: boolean;
+  lastOpened: Date;
+  isBase64: boolean;
+  path: string;
+  isFolder?: boolean;
+  children?: FileItem[];
 }
 
 export interface FileValidationError {
